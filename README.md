@@ -56,7 +56,34 @@ export MIMO_API_URL="https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
 export REFERENCE_AUDIO="/path/to/reference-voice.mp3"
 ```
 
-### 4. 在回复中触发语音
+### 4. 配置 OpenClaw 调用路由脚本
+
+```json
+{
+  "messages": {
+    "tts": {
+      "auto": "always",
+      "provider": "tts-router",
+      "providers": {
+        "tts-router": {
+          "command": "/path/to/scripts/tts-router.sh",
+          "args": ["{{OutputPath}}", "{{Text}}"],
+          "outputFormat": "mp3",
+          "timeoutMs": 60000
+        }
+      }
+    }
+  }
+}
+```
+
+路由逻辑：
+1. ✅ 有 `MIMO_API_KEY` → 尝试 MiMo 白桦男声 TTS
+2. ✅ 参考音频存在 → 自动走 VoiceClone 克隆模式
+3. ✅ MiMo 失败或没 key → **自动降级 Edge TTS** 兜底
+4. ❌ 都失败 → 报错
+
+### 5. 在回复中触发语音
 
 Agent 回复时使用标签即可自动生成语音消息：
 

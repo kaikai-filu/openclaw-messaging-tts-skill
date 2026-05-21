@@ -31,20 +31,20 @@ OpenClaw 自带的 `sherpa-onnx-tts` skill 也可用。
 ### 3. 其他第三方
 兼容 OpenAI TTS API 格式的服务都可以（配置 `baseUrl` 指向自己的端点）。
 
-## 工作流
+## 智能路由（推荐）
 
-### 1. 调用脚本（由 OpenClaw TTS 配置自动触发）
+`scripts/tts-router.sh` 提供自动降级逻辑，一步配置即可：
 
-OpenClaw 的 `messages.tts` 配置调用 `mimo-voiceclone` provider：
+### OpenClaw 配置
 
 ```yaml
 messages:
   tts:
     auto: always
-    provider: mimo-voiceclone
+    provider: tts-router
     providers:
-      mimo-voiceclone:
-        command: /Users/yzy/.openclaw/scripts/openclaw-messaging-tts-skill.sh
+      tts-router:
+        command: /path/to/scripts/tts-router.sh
         args:
           - "{{OutputPath}}"
           - "{{Text}}"
@@ -52,24 +52,37 @@ messages:
         timeoutMs: 60000
 ```
 
-脚本接收两个参数：`<输出路径> <文本内容>`。
+### 路由逻辑
 
-### 2. Shell 入口脚本
-
-```bash
-scripts/openclaw-messaging-tts-skill.sh <output_path> <text>
+```
+MIMO_API_KEY 存在吗？
+├── 是 → 尝试 MiMo TTS（白桦男声）
+│   ├── 有 reference-voice.mp3 → VoiceClone 克隆模式
+│   └── 没有参考音频 → 普通 TTS 模式
+│   └── 成功 → ✅ 返回
+│   └── 失败 → ⬇️ 降级
+└── 否 / 失败 → Edge TTS 兜底
+    ├── edge-tts CLI 可用 → ✅ 返回
+    └── 都失败 → ❌ 报错
 ```
 
-设置环境变量后委托给 Python worker。
+### 环境变量
 
-**环境变量：**
-- `MIMO_API_URL` — 默认 `https://token-plan-cn.xiaomimimo.com/v1/chat/completions`
-- `REFERENCE_AUDIO` — 默认 `/Users/yzy/.openclaw/scripts/reference-voice.mp3`
-- `MIMO_TTS_FORMAT` — 默认 `mp3`
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `MIMO_API_KEY` | — | MiMo API Key（设了就优先用 MiMo）|
+| `MIMO_API_URL` | `https://token-plan-cn.xiaomimimo.com/v1/chat/completions` | MiMo API 端点 |
+| `REFERENCE_AUDIO` | `/Users/yzy/.openclaw/scripts/reference-voice.mp3` | 参考音频路径（克隆用）|
+| `TTS_VOICE` | `白桦` | MiMo TTS 音色 |
+| `EDGE_TTS_VOICE` | `zh-CN-YunxiNeural` | Edge TTS 音色 |
 
-### 3. Python Worker（核心逻辑）
+## 直接使用（不路由）
 
-`scripts/mimo-voiceclone-worker.py`
+如果不需要智能降级，也可直接选用单一 provider。
+
+### VoiceClone（Python 脚本）
+
+`scripts/mimo-voiceclone-tts.sh` + `scripts/mimo-voiceclone-worker.py`
 
 1. 读取参考音频 → base64 → `data:audio/mp3;base64,...`
 2. POST 到 MiMo API `/v1/chat/completions`：
@@ -84,11 +97,29 @@ scripts/openclaw-messaging-tts-skill.sh <output_path> <text>
 
 3. 从返回 `choices[0].message.audio.data` 取 base64 音频，解码写出 mp3。
 
-**请求头：** `api-key: <key>` + `Content-Type: application/json`
+### MiMo TTS（xiaomi provider）
 
-### 4. 消息气泡集成
+```yaml
+provider: xiaomi
+providers:
+  xiaomi:
+    apiKey: "***"
+    baseUrl: "https://token-plan-cn.xiaomimimo.com/v1"
+    model: "mimo-v2.5-tts"
+    voice: "白桦"
+    format: "mp3"
+```
 
-回复中使用 TTS 标签：
+### Edge TTS
+
+```bash
+pip install edge-tts
+edge-tts --text "你好" --voice zh-CN-XiaoxiaoNeural --write-media output.mp3
+```
+
+## 消息气泡集成
+
+所有方式最终触发方式一致：回复中加上 TTS 标签，OpenClaw 自动调用配置的 provider 合成语音并发送。
 
 ```
 [[tts:text]]要语音播报的文字内容...[[/tts:text]]
@@ -167,10 +198,12 @@ openclaw.json
 
 ```
 openclaw-messaging-tts-skill/
+  README.md
   SKILL.md
   scripts/
-    mimo-voiceclone-tts.sh       # Shell 入口（无硬编码敏感信息）
-    mimo-voiceclone-worker.py    # Python 核心 worker
+    tts-router.sh                # 智能路由脚本（推荐）
+    mimo-voiceclone-tts.sh       # VoiceClone Shell 入口
+    mimo-voiceclone-worker.py    # VoiceClone Python 核心 worker
   references/
     config-snippets.md           # 配置样例（占位符，无真实 key）
   assets/
