@@ -89,14 +89,22 @@ def try_edge() -> bool:
 
 
 def main():
+    global text
+
     if try_mimo():
         size = os.path.getsize(output_path)
         print(f"Used MiMo TTS (voice: {voice}), {size} bytes")
         sys.exit(0)
 
+    # MiMo 失败 → Edge TTS 兜底，原文末尾追加简短提示
+    if api_key:
+        text = text.rstrip() + "。MiMo语音失效，降级 Edge TTS。"
+    else:
+        text = text.rstrip() + "。API Key 未配置，使用 Edge TTS。"
+
     if try_edge():
         size = os.path.getsize(output_path)
-        print(f"Used Edge TTS (voice: {edge_voice}), {size} bytes")
+        print(f"Edge TTS (with hint): {size} bytes")
         sys.exit(0)
 
     print("Error: all TTS providers failed", file=sys.stderr)
